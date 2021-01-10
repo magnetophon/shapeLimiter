@@ -4,34 +4,48 @@ declare name "shaperLimiter";
 import("stdfaust.lib");
 
 
-power = 4;
+// power = 4;
+power = 13;
 
 process =
-  (par(i, power, (FB~(_,!):(!,_)))
-   :minOfN(power)
+  limTest;
+
+testRouting =
+  (
+    ro.interleave(power,2)
+    :
+    par(i, power, (FB~(_,!):(!,_)))
+    :minOfN(power)
   )
   ~(_<:si.bus(power))
 ;
 
-FB(prev,prev2) = prev+1,prev;
-// limTest;
+FB(prev,prev2,x) = prev+1,prev+x;
 
+// TODO: sprecial state for going up and attacking at the same time: shorter keepDirection
 
 limTest =
   testSignal
-  : ParalelOpsOfPow2(min,power)
-  : par(i, power+1, _@restDelay(power,i) )
-  : (_,par(i, power, rampFromTo(i+1)~(_,_):(_,!)))
-  : minOfN(power+1)
-    // : (rampFromTo(power)~(_,_))
+  // : ParalelOpsOfPow2(min,power)
+  // : par(i, power+1, _@restDelay(power,i) )
+  // :
+  // (
+  // ro.interleave(power+1,2)
+  // :
+  // par(i, power+1, (rampFromTo(i+1)~(_,!):(!,_)))
+  // :minOfN(power+1)
+  // )
+  // ~(_<:si.bus(power+1))
+  : (rampFromTo(power)~(_,_,!))
  ,testSignal@(pow2(power)-1)
 with {
-  rampFromTo(i,prevVal,prevRamp,target) =
-    it.interpolate_linear(
+  rampFromTo(i,prevRamp,prevVal,target) =
+    (ramp(pow2(i),trig))
+  , it.interpolate_linear(
       ramp(pow2(i),trig):shaper
      ,keepDirection,to)
+  , state
     // , (ramp(pow2(i),trig):shaper)
-  , (ramp(pow2(i),trig))
   with {
   ramp(n,reset) = (select2(reset,_+(1/n):min(1),1/n)~_)+(n<1):min(1);
   // trig = (target<target') | ((prevRamp == 1) & (target>target'))@pow2(i) ;
@@ -41,6 +55,8 @@ with {
     ((prevVal-prevVal'):ba.sAndH(trig));
   from = prevVal:ba.sAndH(trig);
   to = target:ba.sAndH(trig);
+  state = prevVal>to;
+  // state = prevVal<to;
 };
   // minOfN(0) = !;
   // minOfN(1) = _;
