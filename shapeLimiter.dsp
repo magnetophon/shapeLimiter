@@ -23,40 +23,102 @@ testRouting =
 FB(prev,prev2,x) = prev+1,prev+x;
 
 // TODO: sprecial state for going up and attacking at the same time: shorter keepDirection
+// make speed dependant on distance to target trough min(0) or max(0)
 
 limTest =
-  testSignal
+  testSignal*checkbox("signal")
   // : ParalelOpsOfPow2(min,power)
   // : par(i, power+1, _@restDelay(power,i) )
   // :
   // (
   // ro.interleave(power+1,2)
   // :
-  // par(i, power+1, (rampFromTo(i+1)~(_,!):(!,_)))
+  // par(i, power+1, (rampFromTo(i)~(_,!):(!,_)))
   // :minOfN(power+1)
   // )
   // ~(_<:si.bus(power+1))
-  : (rampFromTo(power)~(_,_,!))
+  : ParalelOpsOfPow2(min,power) : (par(i, power, !),_)
+                                  // : ((rampFromTo(power)~(_,_)):(!,_))
+  : ((rampFromTo(power)~(_,_,_)):(_,_,_))
  ,testSignal@(pow2(power)-1)
 with {
-  rampFromTo(i,prevRamp,prevVal,target) =
+  rampFromTo(i,prevRamp,prevVal,linPrev,target) =
     (ramp(pow2(i),trig))
-  , it.interpolate_linear(
-      ramp(pow2(i),trig):shaper
-     ,keepDirection,to)
-  , state
+  , (it.interpolate_linear(
+        ramp(pow2(i),trig):shaper
+       ,keepDirection,to)
+     : slowDownNearTarget
+       // <: (_,overShootShaper)
+    )
+    // , target
+  , linCur
+    // ,attacking
+    // , 1
+    // , linCur
+    // ,to
+    // ,currentDirection
+    // , slowDownAmount
+    // ,proposedDirection
+    // , state
     // , (ramp(pow2(i),trig):shaper)
   with {
-  ramp(n,reset) = (select2(reset,_+(1/n):min(1),1/n)~_)+(n<1):min(1);
-  // trig = (target<target') | ((prevRamp == 1) & (target>target'))@pow2(i) ;
-  trig = (target<target') | ((prevRamp == 1) & (target>target')) ;
+  // ramp(n,reset) = ((select2(reset*((_==1)|(_==0)),_+(1/n):min(1),1/n))+(n<1):min(1))~(_<:(_,_,_));
+  ramp(n,reset) = ((select2(reset,_+(1/n):min(1),1/n))+(n<1):min(1))~_;
   keepDirection = ((_+oldDirection)~(_*(1-trig)))+from;
   oldDirection =
     ((prevVal-prevVal'):ba.sAndH(trig));
+  // currentDirection = (to-from);
+  currentDirection = (linPrev - linPrev')*pow2(i);
+  // / pow2(i);
+  // proposedDirection = (linCur - linCur')*pow2(i);
+  proposedDirection = (target - linPrev );
+  // / pow2(i);
   from = prevVal:ba.sAndH(trig);
   to = target:ba.sAndH(trig);
+  // trig = (target!=target');
+  trig =
+    // proposedDirection < currentDirection
+    select2(attacking
+           , target > target'
+           , proposedDirection < currentDirection
+           )
+    // | impulse // TODO: replace with os.impulse:
+    | button("reset")
+    // | ((prevVal == prevVal'):ba.impulsify)
+  ;
+  attacking = target < linPrev;
+  impulse = 1-1';
+  // trig = (target<target') | ((prevRamp == 1) & (target>target')) ;
+  // trig = (target<target') | ((prevRamp == 1) & (min(target,target@pow2(i))>target')) ;
+  // trig = (target<target') | ((prevRamp == 1) & (target>min(target',prevVal))) ;
   state = prevVal>to;
-  // state = prevVal<to;
+  linCur =
+    it.interpolate_linear(
+      ramp(pow2(i),trig)
+     ,from,to);
+  slowDownNearTarget(x) =
+    select2(checkbox("slowdown enable")
+           , x
+           , (x-prevVal) *(slowDownAmount) + prevVal);
+  // slowDownNearTarget(x) = (x-x') * slowDownAmount + x';
+  slowDownAmount =
+    // 1
+    (1-(1-normalisedDelta :pow(hslider("slowDown", 0.5, 0.00001, 30, 0.001))))
+    *const:min(1):max(0)
+                  // :hbargraph("slow", 0, 1)
+  ;
+  const = hslider("const", 1, 0, 10, 0.001);
+  // delta = (prevVal-(testSignal@pow2(i)));
+  delta = (prevVal-target);
+  deltaTrig = abs(delta)>abs(delta');
+  normalisedDelta = delta:abs
+  ;
+  // / (delta:ba.sAndH(trig));
+  // normalisedDelta = delta / (delta:ba.sAndH(deltaTrig));
+  overShootShaper(x) =
+    select2(checkbox("overs"),x,
+            select2(to == 0,  max(x/to,sin(ma.PI*(x/to-0.5)))*to, x)
+           );
 };
   // minOfN(0) = !;
   // minOfN(1) = _;
@@ -120,7 +182,7 @@ k1 = hslider("k1", 0, -1, 1, 0.001):si.smoo;
 k2 = hslider("k2", 0, -1, 1, 0.001):si.smoo;
 k3 = hslider("k3", 0, -1, 1, 0.001):si.smoo;
 
-blockRate = hslider("[0]block rate", 0.001, 0, 1, 0.001)*100000;
+blockRate = hslider("[0]block rate", 0.001, 0, 10, 0.001)*100000;
 noiseLevel = hslider("[1]noise level", 0, 0, 1, 0.01);
 noiseRate = hslider("[2]noise rate", 20, 10, 20000, 10);
 
