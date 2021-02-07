@@ -5,7 +5,8 @@ import("stdfaust.lib");
 
 
 // power = 4;
-power = 13;
+power = 11;
+// power = 13;
 
 process =
   limTest;
@@ -24,27 +25,29 @@ FB(prev,prev2,x) = prev+1,prev+x;
 
 // TODO: sprecial state for going up and attacking at the same time: shorter keepDirection
 // make speed dependant on distance to target trough min(0) or max(0)
+//
+// crossfade from old-dir to newval: faster if speed-difference is small
 
 limTest =
   testSignal*checkbox("signal")
-  // : ParalelOpsOfPow2(min,power)
-  // : par(i, power+1, _@restDelay(power,i) )
-  // :
-  // (
-  // ro.interleave(power+1,2)
-  // :
-  // par(i, power+1, (rampFromTo(i)~(_,!):(!,_)))
-  // :minOfN(power+1)
-  // )
-  // ~(_<:si.bus(power+1))
-  : ParalelOpsOfPow2(min,power) : (par(i, power, !),_)
-                                  // : ((rampFromTo(power)~(_,_)):(!,_))
-  : ((rampFromTo(power)~(_,_,_)):(_,_,_))
- ,testSignal@(pow2(power)-1)
+  : ParalelOpsOfPow2(min,power)
+  : par(i, power+1, _@restDelay(power,i) )
+  :
+  (
+    ro.interleave(power+1,3)
+    :
+    par(i, power+1, (rampFromTo(i)))
+    : ro.interleave(2,power+1)
+    :(minOfN(power+1),minOfN(power+1))
+  )
+  ~((_<:si.bus((power+1))),(_<:si.bus((power+1))))
+   // : ParalelOpsOfPow2(min,power) : (par(i, power, !),_)
+   // : ((rampFromTo(power)~(_,_)):(!,_))
+   // : ((rampFromTo(power)~(_,_,_)):(_,_,_))
+  ,testSignal@(pow2(power)-1)
 with {
-  rampFromTo(i,prevRamp,prevVal,linPrev,target) =
-    (ramp(pow2(i),trig))
-  , (it.interpolate_linear(
+  rampFromTo(i,prevVal,linPrev,target) =
+    (it.interpolate_linear(
         ramp(pow2(i),trig):shaper
        ,keepDirection,to)
      : slowDownNearTarget
@@ -74,14 +77,19 @@ with {
   proposedDirection = (target - linPrev );
   // / pow2(i);
   from = prevVal:ba.sAndH(trig);
+  linFrom = linPrev:ba.sAndH(trig);
   to = target:ba.sAndH(trig);
   // trig = (target!=target');
   trig =
     // proposedDirection < currentDirection
+    // | (currentDirection == 0)
     select2(attacking
-           , target > target'
-           , proposedDirection < currentDirection
+           , (
+             (proposedDirection < (currentDirection*(pow2(i)+hslider("offset", 0, -pow2(power), pow2(power), 1))/pow2(i) ))
+             | (currentDirection == 0)
            )
+  , proposedDirection < currentDirection
+)
     // | impulse // TODO: replace with os.impulse:
     | button("reset")
     // | ((prevVal == prevVal'):ba.impulsify)
@@ -95,7 +103,7 @@ with {
   linCur =
     it.interpolate_linear(
       ramp(pow2(i),trig)
-     ,from,to);
+     ,linFrom,to);
   slowDownNearTarget(x) =
     select2(checkbox("slowdown enable")
            , x
