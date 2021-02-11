@@ -7,6 +7,7 @@ import("stdfaust.lib");
 // power = 4;
 power = 11;
 // power = 13;
+// power = 16;
 
 process =
   limTest;
@@ -36,7 +37,7 @@ limTest =
   (
     ro.interleave(power+1,3)
     :
-    par(i, power+1, (rampFromTo(i)))
+    par(i, power+1, (rampFromTo(i)~_):(!,_,_))
     : ro.interleave(2,power+1)
     :(minOfN(power+1),minOfN(power+1))
   )
@@ -46,8 +47,9 @@ limTest =
    // : ((rampFromTo(power)~(_,_,_)):(_,_,_))
   ,testSignal@(pow2(power)-1)
 with {
-  rampFromTo(i,prevVal,linPrev,target) =
-    (it.interpolate_linear(
+  rampFromTo(i,prevRamp,prevVal,linPrev,target) =
+    ramp(pow2(i),trig)
+  , (it.interpolate_linear(
         ramp(pow2(i),trig):shaper
        ,keepDirection,to)
      : slowDownNearTarget
@@ -85,11 +87,12 @@ with {
     // | (currentDirection == 0)
     select2(attacking
            , (
-             (proposedDirection < (currentDirection*(pow2(i)+hslider("offset", 0, -pow2(power), pow2(power), 1))/pow2(i) ))
+             // (proposedDirection < (currentDirection*(pow2(i)+hslider("offset", 0, -pow2(power), pow2(power), 1))/pow2(i) ))
+             ((proposedDirection*(1+(prevRamp*pow2(i)))) < currentDirection)
              | (currentDirection == 0)
            )
-  , proposedDirection < currentDirection
-)
+           , proposedDirection < currentDirection
+           )
     // | impulse // TODO: replace with os.impulse:
     | button("reset")
     // | ((prevVal == prevVal'):ba.impulsify)
